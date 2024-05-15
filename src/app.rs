@@ -1,8 +1,8 @@
 use std::io::BufReader;
 use std::path::PathBuf;
-use std::time::Instant;
 use std::{fs::File, time::Duration};
 
+use audiotags::{AudioTag, Tag};
 use crossterm::event::{self, Event, KeyCode};
 use rodio::{source::Source, Decoder, OutputStream, OutputStreamHandle, Sink};
 
@@ -60,10 +60,8 @@ impl PlayerApp {
                     } else if key.code == KeyCode::Up {
                         self.selected_file_ix = (self.selected_file_ix - 1).max(0);
                     } else if key.code == KeyCode::Enter {
-                        let f = BufReader::new(File::open(
-                            &self.library().files()[self.selected_file_ix],
-                        )?);
-                        self.am.set_active_source(f)?;
+                        let path = PathBuf::from(&self.library().files()[self.selected_file_ix]);
+                        self.am.set_active_source(&path)?;
                         self.am.play();
                     }
                 }
@@ -111,8 +109,8 @@ impl AudioManager {
         }
     }
 
-    pub fn set_active_source(&mut self, file: BufReader<File>) -> Result<()> {
-        let source = Decoder::new(file)?;
+    pub fn set_active_source(&mut self, path: &PathBuf) -> Result<()> {
+        let source = Decoder::new(BufReader::new(File::open(path)?))?;
         self.active_source_duration = source.total_duration();
         self.sink.clear();
         self.sink.append(source);
@@ -149,15 +147,23 @@ impl AudioManager {
 
 pub struct Library {
     files: Vec<PathBuf>,
+    tags: Vec<Option<Box<dyn AudioTag + Send + Sync>>>,
 }
 
 impl Library {
     pub fn new() -> Self {
-        Self { files: vec![] }
+        Self {
+            files: vec![],
+            tags: vec![],
+        }
     }
 
     pub fn files(&self) -> &[PathBuf] {
         &self.files
+    }
+
+    pub fn tags(&self) -> &Vec<Option<Box<dyn AudioTag + Send + Sync>>> {
+        &self.tags
     }
 
     pub fn scan(&mut self, directory: &PathBuf) -> Result<()> {
@@ -173,7 +179,12 @@ impl Library {
             .filter(|p| {
                 p.extension()
                     .is_some_and(|e| ["mp3", "flac"].contains(&e.to_str().unwrap_or("")))
-            });
+            })
+            .collect::<Vec<_>>();
+        self.tags = audio_files
+            .iter()
+            .map(|f| Tag::new().read_from_path(f).ok())
+            .collect::<Vec<_>>();
         self.files.extend(audio_files);
         Ok(())
     }

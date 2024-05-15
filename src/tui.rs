@@ -1,7 +1,4 @@
-use std::{
-    io::{stdout, Stdout},
-    time::Duration,
-};
+use std::io::{stdout, Stdout};
 
 use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
@@ -10,9 +7,9 @@ use crossterm::{
 use eyre::Result;
 use ratatui::{
     backend::CrosstermBackend,
-    layout::{Constraint, Layout},
+    layout::{Constraint, Layout, Rect},
     style::{Color, Modifier, Style},
-    widgets::{Block, Borders, Gauge, List, ListState},
+    widgets::{Block, Borders, Gauge, List, ListState, Paragraph},
     Frame, Terminal,
 };
 
@@ -47,6 +44,33 @@ impl Tui {
     fn ui(frame: &mut Frame, app: &mut PlayerApp, ui_state: &mut UiState) {
         let layout =
             Layout::vertical([Constraint::Fill(8), Constraint::Min(1)]).split(frame.size());
+        let bottom_layout =
+            Layout::horizontal([Constraint::Fill(4), Constraint::Min(1)]).split(layout[1]);
+
+        let tags = match app.library().tags().get(app.selected_file_ix()) {
+            Some(Some(t)) => {
+                format!(
+                    "{}\n{}\n{}",
+                    t.title().unwrap_or("Unknown Title"),
+                    t.album_title().unwrap_or("Unknown Album"),
+                    t.artist().unwrap_or("Unknown Artist")
+                )
+            }
+            _ => String::from("Unknown Song"),
+        };
+
+        let tag_info = Paragraph::new(tags).block(
+            Block::default()
+                .title("Song Information")
+                .borders(Borders::ALL),
+        );
+        frame.render_widget(tag_info, bottom_layout[1]);
+
+        Self::draw_file_list(frame, app, ui_state, layout[0]);
+        Self::draw_playback_bar(frame, app, ui_state, bottom_layout[0]);
+    }
+
+    fn draw_file_list(frame: &mut Frame, app: &mut PlayerApp, ui_state: &mut UiState, rect: Rect) {
         let file_paths = app
             .library()
             .files()
@@ -60,8 +84,15 @@ impl Tui {
             .highlight_symbol(">>")
             .repeat_highlight_symbol(true);
 
-        frame.render_stateful_widget(file_list, layout[0], ui_state.file_list_state());
+        frame.render_stateful_widget(file_list, rect, ui_state.file_list_state());
+    }
 
+    fn draw_playback_bar(
+        frame: &mut Frame,
+        app: &mut PlayerApp,
+        _ui_state: &mut UiState,
+        rect: Rect,
+    ) {
         let playback_progress = match app.audio_manager().active_source_duration() {
             Some(v) => app.audio_manager().playback_progress().as_secs_f64() / v.as_secs_f64(),
             None => 0.0,
@@ -96,7 +127,7 @@ impl Tui {
             .label(format!("{playback_fmt} / {total_fmt}",))
             .use_unicode(true)
             .ratio(playback_progress);
-        frame.render_widget(playback_bar, layout[1]);
+        frame.render_widget(playback_bar, rect);
     }
 }
 
