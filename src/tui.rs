@@ -8,8 +8,8 @@ use eyre::Result;
 use ratatui::{
     backend::CrosstermBackend,
     layout::{Constraint, Layout, Rect},
-    style::{Color, Modifier, Style},
-    widgets::{Block, Borders, Gauge, List, ListState, Paragraph},
+    style::{Color, Modifier, Style, Stylize},
+    widgets::{Block, Borders, Gauge, Paragraph, Row, Table, TableState},
     Frame, Terminal,
 };
 
@@ -34,7 +34,7 @@ impl Tui {
 
     pub fn update(&mut self, app: &mut PlayerApp) -> Result<()> {
         self.ui_state
-            .file_list_state
+            .table_state
             .select(Some(app.selected_file_ix()));
         self.terminal
             .draw(|f| Self::ui(f, app, &mut self.ui_state))?;
@@ -43,27 +43,24 @@ impl Tui {
 
     fn ui(frame: &mut Frame, app: &mut PlayerApp, ui_state: &mut UiState) {
         let layout =
-            Layout::vertical([Constraint::Fill(8), Constraint::Min(1)]).split(frame.size());
+            Layout::vertical([Constraint::Fill(8), Constraint::Min(3)]).split(frame.size());
         let bottom_layout =
             Layout::horizontal([Constraint::Fill(4), Constraint::Min(1)]).split(layout[1]);
 
-        let tags = match app.library().tags().get(app.selected_file_ix()) {
-            Some(Some(t)) => {
+        let tags = match app.active_song() {
+            Some(t) => {
                 format!(
                     "{}\n{}\n{}",
                     t.title().unwrap_or("Unknown Title"),
-                    t.album_title().unwrap_or("Unknown Album"),
+                    t.album().unwrap_or("Unknown Album"),
                     t.artist().unwrap_or("Unknown Artist")
                 )
             }
             _ => String::from("Unknown Song"),
         };
 
-        let tag_info = Paragraph::new(tags).block(
-            Block::default()
-                .title("Song Information")
-                .borders(Borders::ALL),
-        );
+        let tag_info =
+            Paragraph::new(tags).block(Block::default().title("Now Playing").borders(Borders::ALL));
         frame.render_widget(tag_info, bottom_layout[1]);
 
         Self::draw_file_list(frame, app, ui_state, layout[0]);
@@ -71,20 +68,43 @@ impl Tui {
     }
 
     fn draw_file_list(frame: &mut Frame, app: &mut PlayerApp, ui_state: &mut UiState, rect: Rect) {
-        let file_paths = app
+        let table_rows = app
             .library()
             .files()
             .iter()
-            .map(|f| f.to_str().unwrap_or("FAILED TO READ PATH"));
+            .map(|s| {
+                Row::new(vec![
+                    format!("{:02}", s.track().0.unwrap_or(0)),     // Track ID
+                    format!("{}", s.title().unwrap_or("Unknown")),  // Song title
+                    format!("{}", s.artist().unwrap_or("Unknown")), // Artist name
+                    format!("{}", s.album().unwrap_or("Unknown")),  // Album name
+                    format!(
+                        "{}",
+                        format!(
+                            "{:02}:{:02}",
+                            s.duration().as_secs() / 60,
+                            s.duration().as_secs() % 60
+                        )
+                    ), // Duration
+                ])
+            })
+            .collect::<Vec<_>>();
+        let widths = [
+            Constraint::Fill(1), // Track ID
+            Constraint::Fill(5), // Song title
+            Constraint::Fill(5), // Artist name
+            Constraint::Fill(5), // Album name
+            Constraint::Fill(2), // Length
+        ];
+        let header =
+            Row::new(["#", "Title", "Artist", "Album", "Length"]).style(Style::new().bold());
+        let table = Table::new(table_rows, widths)
+            .column_spacing(1)
+            .style(Style::new().blue())
+            .header(header)
+            .highlight_style(Style::new().reversed());
 
-        let file_list = List::new(file_paths)
-            .block(Block::default().title("File list").borders(Borders::ALL))
-            .style(Style::default().fg(Color::White))
-            .highlight_style(Style::default().add_modifier(Modifier::ITALIC))
-            .highlight_symbol(">>")
-            .repeat_highlight_symbol(true);
-
-        frame.render_stateful_widget(file_list, rect, ui_state.file_list_state());
+        frame.render_stateful_widget(table, rect, ui_state.table_state());
     }
 
     fn draw_playback_bar(
@@ -93,24 +113,35 @@ impl Tui {
         _ui_state: &mut UiState,
         rect: Rect,
     ) {
-        let playback_progress = match app.audio_manager().active_source_duration() {
-            Some(v) => app.audio_manager().playback_progress().as_secs_f64() / v.as_secs_f64(),
+        let total_duration = app
+            .active_song()
+            .map(|s| s.duration().as_secs_f64())
+            .unwrap_or(1.0);
+
+        let elapsed_duration = match app.active_song() {
+            Some(_) => app
+                .audio_manager()
+                .playback_progress()
+                .as_secs_f64()
+                .min(total_duration),
             None => 0.0,
         };
 
-        let playback_fmt = match app.audio_manager().active_source_duration() {
+        let playback_progress = elapsed_duration / total_duration;
+
+        let playback_fmt = match app.active_song() {
             Some(_) => {
-                let minutes = app.audio_manager().playback_progress().as_secs() / 60;
-                let secs = app.audio_manager().playback_progress().as_secs() % 60;
+                let minutes = (elapsed_duration as i64) / 60;
+                let secs = (elapsed_duration as i64) % 60;
                 format!("{:02}:{:02}", minutes, secs)
             }
             None => String::from("--:--"),
         };
 
-        let total_fmt = match app.audio_manager().active_source_duration() {
-            Some(v) => {
-                let total_minutes = v.as_secs() / 60;
-                let total_secs = v.as_secs() % 60;
+        let total_fmt = match app.active_song() {
+            Some(s) => {
+                let total_minutes = s.duration().as_secs() / 60;
+                let total_secs = s.duration().as_secs() % 60;
                 format!("{:02}:{:02}", total_minutes, total_secs)
             }
             None => String::from("--:--"),
@@ -143,17 +174,17 @@ impl Drop for Tui {
 }
 
 struct UiState {
-    file_list_state: ListState,
+    table_state: TableState,
 }
 
 impl UiState {
     pub fn new() -> Self {
         Self {
-            file_list_state: ListState::default(),
+            table_state: TableState::default(),
         }
     }
 
-    pub fn file_list_state(&mut self) -> &mut ListState {
-        &mut self.file_list_state
+    pub fn table_state(&mut self) -> &mut TableState {
+        &mut self.table_state
     }
 }

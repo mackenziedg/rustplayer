@@ -1,5 +1,5 @@
 use std::io::BufReader;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::{fs::File, time::Duration};
 
 use audiotags::{AudioTag, Tag};
@@ -8,10 +8,90 @@ use rodio::{source::Source, Decoder, OutputStream, OutputStreamHandle, Sink};
 
 use eyre::Result;
 
+#[derive(Debug, Clone)]
+pub struct SongInfo {
+    title: Option<String>,
+    album: Option<String>,
+    artist: Option<String>,
+    _album_artist: Option<String>,
+    _year: Option<i32>,
+    _genre: Option<String>,
+    track: (Option<u16>, Option<u16>),
+    _disc: (Option<u16>, Option<u16>),
+    duration: Duration,
+    file_path: PathBuf,
+}
+
+impl SongInfo {
+    fn new(path: &Path, tag: Box<dyn AudioTag>) -> Self {
+        // If the file has the duration in the tags, great!
+        // If not, we call ffmpeg/ffprobe to get the info
+        let duration = match tag.duration() {
+            Some(v) => Duration::from_secs_f64(v),
+            None => mp3_duration::from_path(path).unwrap_or(Duration::ZERO),
+        };
+
+        Self {
+            title: tag.title().map(|s| s.to_owned()),
+            album: tag.album_title().map(|s| s.to_owned()),
+            artist: tag.artist().map(|s| s.to_owned()),
+            _album_artist: tag.album_artist().map(|s| s.to_owned()),
+            _year: tag.year(),
+            _genre: tag.genre().map(|s| s.to_owned()),
+            track: tag.track(),
+            _disc: tag.disc(),
+            duration,
+            file_path: path.to_path_buf(),
+        }
+    }
+
+    pub fn title(&self) -> Option<&str> {
+        self.title.as_deref()
+    }
+
+    pub fn album(&self) -> Option<&str> {
+        self.album.as_deref()
+    }
+
+    pub fn artist(&self) -> Option<&str> {
+        self.artist.as_deref()
+    }
+
+    pub fn _album_artist(&self) -> Option<&str> {
+        self._album_artist.as_deref()
+    }
+
+    pub fn _year(&self) -> &Option<i32> {
+        &self._year
+    }
+
+    pub fn _genre(&self) -> Option<&str> {
+        self._genre.as_deref()
+    }
+
+    pub fn track(&self) -> &(Option<u16>, Option<u16>) {
+        &self.track
+    }
+
+    pub fn _disc(&self) -> &(Option<u16>, Option<u16>) {
+        &self._disc
+    }
+
+    pub fn duration(&self) -> &Duration {
+        &self.duration
+    }
+
+    pub fn _file_path(&self) -> &Path {
+        &self.file_path
+    }
+}
+
 pub struct PlayerApp {
     library: Library,
     am: AudioManager,
     alive: bool,
+    active_song: Option<SongInfo>,
+    playing_file_ix: usize,
     selected_file_ix: usize,
 }
 
@@ -21,6 +101,8 @@ impl PlayerApp {
             library: Library::new(),
             am: AudioManager::new()?,
             alive: true,
+            active_song: None,
+            playing_file_ix: 0,
             selected_file_ix: 0,
         })
     }
@@ -40,6 +122,14 @@ impl PlayerApp {
     pub fn update(&mut self, dt: f64) -> Result<()> {
         self.am.update(dt);
         self.handle_events()?;
+        if let Some(s) = &self.active_song {
+            if self.am.playback_progress > s.duration
+                && self.playing_file_ix < self.library().files().len() - 1
+            {
+                self.playing_file_ix += 1;
+                self.play_at_ix()?;
+            }
+        }
         Ok(())
     }
 
@@ -60,9 +150,8 @@ impl PlayerApp {
                     } else if key.code == KeyCode::Up {
                         self.selected_file_ix = (self.selected_file_ix - 1).max(0);
                     } else if key.code == KeyCode::Enter {
-                        let path = PathBuf::from(&self.library().files()[self.selected_file_ix]);
-                        self.am.set_active_source(&path)?;
-                        self.am.play();
+                        self.playing_file_ix = self.selected_file_ix;
+                        self.play_at_ix()?;
                     }
                 }
             }
@@ -70,19 +159,31 @@ impl PlayerApp {
         Ok(())
     }
 
+    fn play_at_ix(&mut self) -> Result<()> {
+        let path = PathBuf::from(&self.library().files()[self.playing_file_ix].file_path);
+        self.am.set_active_source(&path)?;
+        self.active_song = Some(self.library().files()[self.playing_file_ix].clone());
+        self.am.play();
+        Ok(())
+    }
+
+    pub fn active_song(&self) -> Option<&SongInfo> {
+        self.active_song.as_ref()
+    }
+
     pub fn is_alive(&self) -> bool {
         self.alive
     }
 
-    pub fn is_playing(&self) -> bool {
+    pub fn _is_playing(&self) -> bool {
         !self.am.sink.is_paused()
     }
 }
 
 pub struct AudioManager {
     sink: Sink,
-    stream: OutputStream,
-    stream_handle: OutputStreamHandle,
+    _stream: OutputStream,
+    _stream_handle: OutputStreamHandle,
     playback_progress: Duration,
     active_source_duration: Option<Duration>,
 }
@@ -94,8 +195,8 @@ impl AudioManager {
 
         Ok(Self {
             sink,
-            stream,
-            stream_handle,
+            _stream: stream,
+            _stream_handle: stream_handle,
             playback_progress: Duration::ZERO,
             active_source_duration: None,
         })
@@ -103,9 +204,9 @@ impl AudioManager {
 
     pub fn toggle_playback(&mut self) {
         if self.sink.is_paused() {
-            self.sink.play();
+            self.play();
         } else {
-            self.sink.pause();
+            self.pause();
         }
     }
 
@@ -132,7 +233,7 @@ impl AudioManager {
         }
     }
 
-    pub fn set_volume(&mut self, volume: f32) {
+    pub fn _set_volume(&mut self, volume: f32) {
         self.sink.set_volume(volume);
     }
 
@@ -140,52 +241,63 @@ impl AudioManager {
         &self.playback_progress
     }
 
-    pub fn active_source_duration(&self) -> Option<Duration> {
+    pub fn _active_source_duration(&self) -> Option<Duration> {
         self.active_source_duration
     }
 }
 
 pub struct Library {
-    files: Vec<PathBuf>,
-    tags: Vec<Option<Box<dyn AudioTag + Send + Sync>>>,
+    files: Vec<SongInfo>,
+    _tags: Vec<Option<Box<dyn AudioTag + Send + Sync>>>,
 }
 
 impl Library {
     pub fn new() -> Self {
         Self {
             files: vec![],
-            tags: vec![],
+            _tags: vec![],
         }
     }
 
-    pub fn files(&self) -> &[PathBuf] {
+    pub fn files(&self) -> &[SongInfo] {
         &self.files
     }
 
-    pub fn tags(&self) -> &Vec<Option<Box<dyn AudioTag + Send + Sync>>> {
-        &self.tags
+    pub fn _tags(&self) -> &Vec<Option<Box<dyn AudioTag + Send + Sync>>> {
+        &self._tags
     }
 
     pub fn scan(&mut self, directory: &PathBuf) -> Result<()> {
         self.files.clear();
-        let audio_files = std::fs::read_dir(directory)?
-            .filter_map(|d| match d {
-                Ok(p) => match p.file_type() {
-                    Ok(_) => Some(p.path()),
+        self.files.extend(
+            std::fs::read_dir(directory)?
+                .filter_map(|d| match d {
+                    Ok(p) => match p.file_type() {
+                        Ok(_) => Some(p.path()),
+                        Err(_) => None,
+                    },
                     Err(_) => None,
-                },
-                Err(_) => None,
-            })
-            .filter(|p| {
-                p.extension()
-                    .is_some_and(|e| ["mp3", "flac"].contains(&e.to_str().unwrap_or("")))
-            })
-            .collect::<Vec<_>>();
-        self.tags = audio_files
-            .iter()
-            .map(|f| Tag::new().read_from_path(f).ok())
-            .collect::<Vec<_>>();
-        self.files.extend(audio_files);
+                })
+                .filter(|p| {
+                    p.extension()
+                        .is_some_and(|e| ["mp3", "flac"].contains(&e.to_str().unwrap_or("")))
+                })
+                .filter_map(|p| {
+                    let tag = match Tag::new().read_from_path(&p) {
+                        Ok(t) => t,
+                        Err(_) => return None,
+                    };
+                    Some(SongInfo::new(&p, tag))
+                }),
+        );
+
+        self.files.sort_by_key(|f| {
+            (
+                f.artist.clone().unwrap_or("Unknown".to_string()),
+                f.album.clone().unwrap_or("Unknown".to_string()),
+                f.track.0.unwrap_or(0),
+            )
+        });
         Ok(())
     }
 }
