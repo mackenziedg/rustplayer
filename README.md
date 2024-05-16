@@ -17,13 +17,13 @@ rustplayer /path/to/music/files
 ## Keybindings
 
 - '↑'/'↓': Navigate song list
+- '-'/'=': Adjust volume down/up
 - 'Enter': Play selected song
 - 'p': Play/pause playing song
 - 's': Rescan folder
 
 ## TODO
 
-- Volume control
 - Playlists
 - Help menu
 - Visualizer

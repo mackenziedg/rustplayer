@@ -153,11 +153,27 @@ impl PlayerApp {
                     } else if key.code == KeyCode::Enter {
                         self.playing_file_ix = self.selected_file_ix;
                         self.play_at_ix()?;
+                    } else if key.code == KeyCode::Char('=') {
+                        self.volume_up();
+                    } else if key.code == KeyCode::Char('-') {
+                        self.volume_down();
                     }
                 }
             }
         }
         Ok(())
+    }
+
+    fn volume_up(&mut self) {
+        self.am.set_volume((self.am.get_volume() + 0.01).min(1.0))
+    }
+
+    fn volume_down(&mut self) {
+        self.am.set_volume((self.am.get_volume() - 0.01).max(0.0))
+    }
+
+    pub fn volume(&self) -> f32 {
+        self.am.get_volume()
     }
 
     fn play_at_ix(&mut self) -> Result<()> {
@@ -238,7 +254,11 @@ impl AudioManager {
         }
     }
 
-    pub fn _set_volume(&mut self, volume: f32) {
+    pub fn get_volume(&self) -> f32 {
+        self.sink.volume()
+    }
+
+    pub fn set_volume(&mut self, volume: f32) {
         self.sink.set_volume(volume);
     }
 

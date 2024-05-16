@@ -9,7 +9,10 @@ use ratatui::{
     backend::CrosstermBackend,
     layout::{Constraint, Layout, Rect},
     style::{Color, Modifier, Style, Stylize},
-    widgets::{Block, Borders, Gauge, Paragraph, Row, Table, TableState},
+    widgets::{
+        block::{Position, Title},
+        Block, Borders, Gauge, Paragraph, Row, Table, TableState,
+    },
     Frame, Terminal,
 };
 
@@ -147,10 +150,19 @@ impl Tui {
             None => String::from("--:--"),
         };
 
+        let display_volume = (100.0 * app.volume()) as u32;
         let playback_divider = if app.is_playing() { "▶" } else { "⏸︎" };
 
         let playback_bar = Gauge::default()
-            .block(Block::default().borders(Borders::ALL).title("Playback"))
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title("Playback")
+                    .title(
+                        Title::from(format!("Volume: {display_volume}%"))
+                            .position(Position::Bottom),
+                    ),
+            )
             .gauge_style(
                 Style::default()
                     .fg(Color::White)
