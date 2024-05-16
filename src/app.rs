@@ -140,7 +140,9 @@ impl PlayerApp {
                     if key.code == KeyCode::Char('q') {
                         self.alive = false;
                     } else if key.code == KeyCode::Char('p') {
-                        self.am.toggle_playback();
+                        if self.active_song.is_some() {
+                            self.am.toggle_playback();
+                        }
                     } else if key.code == KeyCode::Char('s') {
                         self.library.scan()?;
                     } else if key.code == KeyCode::Down {
@@ -174,7 +176,7 @@ impl PlayerApp {
         self.alive
     }
 
-    pub fn _is_playing(&self) -> bool {
+    pub fn is_playing(&self) -> bool {
         !self.am.sink.is_paused()
     }
 }
@@ -191,6 +193,7 @@ impl AudioManager {
     pub fn new() -> Result<Self> {
         let (stream, stream_handle) = OutputStream::try_default()?;
         let sink = Sink::try_new(&stream_handle)?;
+        sink.pause();
 
         Ok(Self {
             sink,
@@ -229,6 +232,9 @@ impl AudioManager {
     pub fn update(&mut self, dt: f64) {
         if !self.sink.is_paused() {
             self.playback_progress += Duration::from_secs_f64(dt);
+            if self.playback_progress > self.active_source_duration.unwrap_or(Duration::ZERO) {
+                self.sink.pause();
+            }
         }
     }
 

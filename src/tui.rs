@@ -147,6 +147,8 @@ impl Tui {
             None => String::from("--:--"),
         };
 
+        let playback_divider = if app.is_playing() { "▶" } else { "⏸︎" };
+
         let playback_bar = Gauge::default()
             .block(Block::default().borders(Borders::ALL).title("Playback"))
             .gauge_style(
@@ -155,7 +157,7 @@ impl Tui {
                     .bg(Color::Black)
                     .add_modifier(Modifier::BOLD),
             )
-            .label(format!("{playback_fmt} / {total_fmt}",))
+            .label(format!("{playback_fmt} {playback_divider} {total_fmt}",))
             .use_unicode(true)
             .ratio(playback_progress);
         frame.render_widget(playback_bar, rect);
