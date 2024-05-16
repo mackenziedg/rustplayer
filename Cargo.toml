@@ -12,3 +12,6 @@ eyre = "0.6.12"
 mp3-duration = "0.1.10"
 ratatui = "0.26.2"
 rodio = "0.18.0"
+
+[dev-dependencies]
+tempdir = "0.3.7"

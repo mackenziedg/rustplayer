@@ -98,7 +98,7 @@ pub struct PlayerApp {
 impl PlayerApp {
     pub fn new(root_dir: &Path) -> Result<Self> {
         Ok(Self {
-            library: Library::new(root_dir)?,
+            library: Library::new(root_dir).with_scan()?,
             am: AudioManager::new()?,
             alive: true,
             active_song: None,
@@ -274,30 +274,32 @@ impl AudioManager {
 pub struct Library {
     root_dir: PathBuf,
     files: Vec<SongInfo>,
-    _tags: Vec<Option<Box<dyn AudioTag + Send + Sync>>>,
 }
 
 impl Library {
-    pub fn new(root_dir: &Path) -> Result<Self> {
-        let mut s = Self {
+    pub fn new(root_dir: &Path) -> Self {
+        Self {
             root_dir: root_dir.to_path_buf(),
             files: vec![],
-            _tags: vec![],
-        };
-        s.scan()?;
-        Ok(s)
+        }
+    }
+
+    pub fn with_scan(mut self) -> Result<Self> {
+        let _ = self.scan()?;
+        Ok(self)
     }
 
     pub fn files(&self) -> &[SongInfo] {
         &self.files
     }
 
-    pub fn _tags(&self) -> &Vec<Option<Box<dyn AudioTag + Send + Sync>>> {
-        &self._tags
-    }
-
-    pub fn scan(&mut self) -> Result<()> {
+    /// Scan [`Self::root_dir`] for audio files.
+    ///
+    /// If successful, returns a [`Result`] containing the number of total files scanned.
+    /// The number of files successfully loaded is just the size of [`Self::files`].
+    pub fn scan(&mut self) -> Result<usize> {
         self.files.clear();
+        let mut total_files_seen = 0usize;
         let mut to_scan = vec![self.root_dir.to_path_buf()];
         while let Some(dir) = to_scan.pop() {
             for p in std::fs::read_dir(dir)?.flatten() {
@@ -309,6 +311,7 @@ impl Library {
                         .extension()
                         .is_some_and(|e| ["mp3", "flac"].contains(&e.to_str().unwrap_or("")))
                 {
+                    total_files_seen += 1;
                     let tag = match Tag::new().read_from_path(&p.path()) {
                         Ok(t) => t,
                         Err(_) => continue,
@@ -325,6 +328,77 @@ impl Library {
                 f.track.0.unwrap_or(0),
             )
         });
-        Ok(())
+        Ok(total_files_seen)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    extern crate tempdir;
+
+    use std::fs::{create_dir, File};
+    use tempdir::TempDir;
+
+    use super::*;
+
+    #[test]
+    fn test_library_scans_empty_dir() {
+        let td = TempDir::new("tempdir").unwrap();
+        let l = Library::new(td.path());
+        assert!(l.files().is_empty());
+    }
+
+    #[test]
+    fn test_library_scans_flat_dir_no_valid_files() {
+        let td = TempDir::new("tempdir").unwrap();
+        let file_path = td.path().join("test_file.mp3");
+        let _file = File::create(file_path).unwrap();
+        let mut l = Library::new(td.path());
+        assert_eq!(l.scan().unwrap(), 1);
+        // We don't add files unless they can be parsed as valid mp3/flac
+        assert!(l.files().is_empty());
+    }
+
+    #[test]
+    fn test_library_scans_nested_dir_no_valid_files() {
+        let td = TempDir::new("tempdir").unwrap();
+        create_dir(td.path().join("subdir_1")).unwrap();
+        let file_path = td.path().join("subdir_1").join("test_file.mp3");
+        let _file = File::create(file_path).unwrap();
+        create_dir(td.path().join("subdir_2")).unwrap();
+        let file_path = td.path().join("subdir_2").join("test_file.mp3");
+        let _file = File::create(file_path).unwrap();
+        create_dir(td.path().join("subdir_3")).unwrap();
+        let file_path = td.path().join("subdir_3").join("test_file.mp3");
+        let _file = File::create(file_path).unwrap();
+        create_dir(td.path().join("subdir_1").join("subsubdir_1")).unwrap();
+        let file_path = td
+            .path()
+            .join("subdir_1")
+            .join("subsubdir_1")
+            .join("test_file.mp3");
+        let _file = File::create(file_path).unwrap();
+        let mut l = Library::new(td.path());
+        assert_eq!(l.scan().unwrap(), 4);
+        // We don't add files unless they can be parsed as valid mp3/flac
+        assert!(l.files().is_empty());
+    }
+
+    #[test]
+    fn test_audio_manager_toggle_playback() {
+        let mut am = AudioManager::new().unwrap();
+        assert!(am.sink.is_paused());
+        am.toggle_playback();
+        assert!(!am.sink.is_paused());
+        am.toggle_playback();
+        assert!(am.sink.is_paused());
+        am.play();
+        assert!(!am.sink.is_paused());
+        am.play();
+        assert!(!am.sink.is_paused());
+        am.pause();
+        assert!(am.sink.is_paused());
+        am.pause();
+        assert!(am.sink.is_paused());
     }
 }
