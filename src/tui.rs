@@ -103,7 +103,7 @@ impl Tui {
             Row::new(["#", "Title", "Artist", "Album", "Length"]).style(Style::new().bold());
         let table = Table::new(table_rows, widths)
             .column_spacing(1)
-            .style(Style::new().blue())
+            .style(Style::new().bg(Color::Reset).fg(Color::Blue))
             .header(header)
             .highlight_style(Style::new().reversed());
 
@@ -152,6 +152,11 @@ impl Tui {
 
         let display_volume = (100.0 * app.volume()) as u32;
         let playback_divider = if app.is_playing() { "▶" } else { "⏸︎" };
+        let active_color = if app.is_playing() {
+            Color::Blue
+        } else {
+            Color::Yellow
+        };
 
         let playback_bar = Gauge::default()
             .block(
@@ -165,7 +170,7 @@ impl Tui {
             )
             .gauge_style(
                 Style::default()
-                    .fg(Color::White)
+                    .fg(active_color)
                     .bg(Color::Black)
                     .add_modifier(Modifier::BOLD),
             )
