@@ -123,11 +123,13 @@ impl PlayerApp {
         self.am.update(dt);
         self.handle_events()?;
         if let Some(s) = &self.active_song {
-            if self.am.playback_progress > s.duration
-                && self.playing_file_ix < self.library().files().len() - 1
-            {
-                self.playing_file_ix += 1;
-                self.play_at_ix()?;
+            if self.am.playback_progress >= s.duration {
+                if self.playing_file_ix < self.library().files().len() - 1 {
+                    self.playing_file_ix += 1;
+                    self.play_at_ix()?;
+                } else {
+                    self.am.pause();
+                }
             }
         }
         Ok(())
@@ -150,6 +152,18 @@ impl PlayerApp {
                             (self.selected_file_ix + 1).min(self.library().files().len() - 1);
                     } else if key.code == KeyCode::Up {
                         self.selected_file_ix = self.selected_file_ix.max(1) - 1;
+                    } else if key.code == KeyCode::Right {
+                        if self.active_song.is_some() {
+                            if key.modifiers == crossterm::event::KeyModifiers::SHIFT {
+                                self.am.skip()
+                            } else {
+                                self.am.seek_forward();
+                            }
+                        }
+                    } else if key.code == KeyCode::Left {
+                        if self.active_song.is_some() {
+                            self.am.seek_backward();
+                        }
                     } else if key.code == KeyCode::Enter {
                         self.playing_file_ix = self.selected_file_ix;
                         self.play_at_ix()?;
@@ -237,6 +251,29 @@ impl AudioManager {
         Ok(())
     }
 
+    pub fn skip(&mut self) {
+        self.playback_progress = self
+            .active_source_duration
+            .expect("Already checked if we have an active source.");
+    }
+
+    pub fn seek_forward(&mut self) {
+        let seek_diff = Duration::from_secs(5);
+        if let Ok(()) = self.sink.try_seek(self.playback_progress + seek_diff) {
+            self.playback_progress += seek_diff;
+        }
+    }
+
+    pub fn seek_backward(&mut self) {
+        let seek_diff = Duration::from_secs(1);
+        if seek_diff > self.playback_progress {
+            self.playback_progress = Duration::ZERO;
+            let _ = self.sink.try_seek(self.playback_progress);
+        } else if let Ok(()) = self.sink.try_seek(self.playback_progress - seek_diff) {
+            self.playback_progress -= seek_diff;
+        }
+    }
+
     pub fn play(&mut self) {
         self.sink.play();
     }
@@ -248,9 +285,6 @@ impl AudioManager {
     pub fn update(&mut self, dt: f64) {
         if !self.sink.is_paused() {
             self.playback_progress += Duration::from_secs_f64(dt);
-            if self.playback_progress > self.active_source_duration.unwrap_or(Duration::ZERO) {
-                self.sink.pause();
-            }
         }
     }
 

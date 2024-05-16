@@ -17,6 +17,8 @@ rustplayer /path/to/music/files
 ## Keybindings
 
 - '↑'/'↓': Navigate song list
+- '←'/'→': Seek through file
+- 'Shift + →': Skip song
 - '-'/'=': Adjust volume down/up
 - 'Enter': Play selected song
 - 'p': Play/pause playing song
@@ -25,6 +27,7 @@ rustplayer /path/to/music/files
 ## TODO
 
 - Playlists
+- Silent seeking
 - Shuffle
 - Help menu
 - Searching
