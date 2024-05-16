@@ -267,29 +267,27 @@ impl Library {
         &self._tags
     }
 
-    pub fn scan(&mut self, directory: &PathBuf) -> Result<()> {
+    pub fn scan(&mut self, directory: &Path) -> Result<()> {
         self.files.clear();
-        self.files.extend(
-            std::fs::read_dir(directory)?
-                .filter_map(|d| match d {
-                    Ok(p) => match p.file_type() {
-                        Ok(_) => Some(p.path()),
-                        Err(_) => None,
-                    },
-                    Err(_) => None,
-                })
-                .filter(|p| {
-                    p.extension()
+        let mut to_scan = vec![directory.to_path_buf()];
+        while let Some(dir) = to_scan.pop() {
+            for p in std::fs::read_dir(dir)?.flatten() {
+                let path = p.path();
+                if p.file_type()?.is_dir() {
+                    to_scan.push(path);
+                } else if p.file_type()?.is_file()
+                    && p.path()
+                        .extension()
                         .is_some_and(|e| ["mp3", "flac"].contains(&e.to_str().unwrap_or("")))
-                })
-                .filter_map(|p| {
-                    let tag = match Tag::new().read_from_path(&p) {
+                {
+                    let tag = match Tag::new().read_from_path(&p.path()) {
                         Ok(t) => t,
-                        Err(_) => return None,
+                        Err(_) => continue,
                     };
-                    Some(SongInfo::new(&p, tag))
-                }),
-        );
+                    self.files.push(SongInfo::new(&p.path(), tag));
+                }
+            }
+        }
 
         self.files.sort_by_key(|f| {
             (
