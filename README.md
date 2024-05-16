@@ -1,5 +1,7 @@
 # Rust Player (Currently unnamed)
 
+Terminal music player for FLAC and mp3 files, powered by Rust.
+
 ## Installation and Usage
 
 ```
