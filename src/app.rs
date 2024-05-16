@@ -96,9 +96,9 @@ pub struct PlayerApp {
 }
 
 impl PlayerApp {
-    pub fn new() -> Result<Self> {
+    pub fn new(root_dir: &Path) -> Result<Self> {
         Ok(Self {
-            library: Library::new(),
+            library: Library::new(root_dir)?,
             am: AudioManager::new()?,
             alive: true,
             active_song: None,
@@ -142,8 +142,7 @@ impl PlayerApp {
                     } else if key.code == KeyCode::Char('p') {
                         self.am.toggle_playback();
                     } else if key.code == KeyCode::Char('s') {
-                        self.library
-                            .scan(&PathBuf::from("/home/mac/Downloads/test_music"))?;
+                        self.library.scan()?;
                     } else if key.code == KeyCode::Down {
                         self.selected_file_ix =
                             (self.selected_file_ix + 1).min(self.library().files().len() - 1);
@@ -247,16 +246,20 @@ impl AudioManager {
 }
 
 pub struct Library {
+    root_dir: PathBuf,
     files: Vec<SongInfo>,
     _tags: Vec<Option<Box<dyn AudioTag + Send + Sync>>>,
 }
 
 impl Library {
-    pub fn new() -> Self {
-        Self {
+    pub fn new(root_dir: &Path) -> Result<Self> {
+        let mut s = Self {
+            root_dir: root_dir.to_path_buf(),
             files: vec![],
             _tags: vec![],
-        }
+        };
+        s.scan()?;
+        Ok(s)
     }
 
     pub fn files(&self) -> &[SongInfo] {
@@ -267,9 +270,9 @@ impl Library {
         &self._tags
     }
 
-    pub fn scan(&mut self, directory: &Path) -> Result<()> {
+    pub fn scan(&mut self) -> Result<()> {
         self.files.clear();
-        let mut to_scan = vec![directory.to_path_buf()];
+        let mut to_scan = vec![self.root_dir.to_path_buf()];
         while let Some(dir) = to_scan.pop() {
             for p in std::fs::read_dir(dir)?.flatten() {
                 let path = p.path();
