@@ -149,7 +149,7 @@ impl PlayerApp {
                         self.selected_file_ix =
                             (self.selected_file_ix + 1).min(self.library().files().len() - 1);
                     } else if key.code == KeyCode::Up {
-                        self.selected_file_ix = (self.selected_file_ix - 1).max(0);
+                        self.selected_file_ix = self.selected_file_ix.max(1) - 1;
                     } else if key.code == KeyCode::Enter {
                         self.playing_file_ix = self.selected_file_ix;
                         self.play_at_ix()?;
