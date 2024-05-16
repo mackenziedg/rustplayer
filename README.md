@@ -25,6 +25,8 @@ rustplayer /path/to/music/files
 ## TODO
 
 - Playlists
+- Shuffle
 - Help menu
+- Searching
 - Visualizer
 - Thorough testing
