@@ -103,7 +103,7 @@ impl Tui {
             Row::new(["#", "Title", "Artist", "Album", "Length"]).style(Style::new().bold());
         let table = Table::new(table_rows, widths)
             .column_spacing(1)
-            .style(Style::new().bg(Color::Reset).fg(Color::Blue))
+            .style(Style::new().bg(Color::Black).fg(Color::White))
             .header(header)
             .highlight_style(Style::new().reversed());
 
@@ -151,23 +151,28 @@ impl Tui {
         };
 
         let display_volume = (100.0 * app.volume()) as u32;
-        let playback_divider = if app.is_playing() { "▶" } else { "⏸︎" };
+        let playback_divider = if app.is_playing() { "" } else { "" };
         let active_color = if app.is_playing() {
-            Color::Blue
+            Color::Green
         } else {
             Color::Yellow
         };
 
+        let tags = match app.active_song() {
+            Some(t) => {
+                format!(
+                    "{} - {}",
+                    t.title().unwrap_or("Unknown Title"),
+                    t.artist().unwrap_or("Unknown Artist"),
+                )
+            }
+            _ => String::from(""),
+        };
+
         let playback_bar = Gauge::default()
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .title("Playback")
-                    .title(
-                        Title::from(format!("Volume: {display_volume}%"))
-                            .position(Position::Bottom),
-                    ),
-            )
+            .block(Block::default().borders(Borders::ALL).title(tags).title(
+                Title::from(format!("Volume: {display_volume}%")).position(Position::Bottom),
+            ))
             .gauge_style(
                 Style::default()
                     .fg(active_color)
