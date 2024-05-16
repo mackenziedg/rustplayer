@@ -5,9 +5,13 @@ Terminal music player for FLAC and mp3 files, powered by Rust.
 ## Installation and Usage
 
 ```
-$ git clone git@github.com:mackenziedg/rustplayer.git
-$ cargo install --path rustplayer/
-$ rustplayer /path/to/music/files
+git clone git@github.com:mackenziedg/rustplayer.git && cargo install --path rustplayer/
+```
+
+Then run the program like
+
+```
+rustplayer /path/to/music/files
 ```
 
 ## Keybindings
