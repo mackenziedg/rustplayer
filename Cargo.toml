@@ -15,3 +15,11 @@ rodio = "0.18.0"
 
 [dev-dependencies]
 tempdir = "0.3.7"
+
+[lints.clippy]
+complexity = "warn"
+pedantic = "warn"
+perf = "warn"
+style = "warn"
+suspicious = "warn"
+module_name_repetitions = "allow"

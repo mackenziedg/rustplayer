@@ -105,7 +105,7 @@ impl Tui {
         match app.ui_mode() {
             AppUiMode::FileList => Self::draw_ui_file_list_mode(frame, app, ui_state),
             AppUiMode::SearchPopup => Self::draw_ui_search_mode(frame, app, ui_state),
-            _ => todo!(),
+            AppUiMode::InfoPopup => todo!(),
         }
     }
 
@@ -170,8 +170,7 @@ impl Tui {
     ) {
         let total_duration = app
             .active_song()
-            .map(|s| s.duration().as_secs_f64())
-            .unwrap_or(1.0);
+            .map_or(1.0, |s| s.duration().as_secs_f64());
 
         let elapsed_duration = match app.active_song() {
             Some(_) => app
@@ -184,11 +183,12 @@ impl Tui {
 
         let playback_progress = elapsed_duration / total_duration;
 
+        #[allow(clippy::cast_possible_truncation)]
         let playback_fmt = match app.active_song() {
             Some(_) => {
                 let minutes = (elapsed_duration as i64) / 60;
                 let secs = (elapsed_duration as i64) % 60;
-                format!("{:02}:{:02}", minutes, secs)
+                format!("{minutes:02}:{secs:02}")
             }
             None => String::from("--:--"),
         };
@@ -197,11 +197,12 @@ impl Tui {
             Some(s) => {
                 let total_minutes = s.duration().as_secs() / 60;
                 let total_secs = s.duration().as_secs() % 60;
-                format!("{:02}:{:02}", total_minutes, total_secs)
+                format!("{total_minutes:02}:{total_secs:02}")
             }
             None => String::from("--:--"),
         };
 
+        #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
         let display_volume = (100.0 * app.volume()) as u32;
         let playback_divider = if app.is_playing() { "" } else { "" };
         let active_color = if app.is_playing() {
@@ -218,7 +219,7 @@ impl Tui {
                     t.artist().unwrap_or("Unknown Artist"),
                 )
             }
-            _ => String::from(""),
+            _ => String::new(),
         };
 
         let playback_bar = Gauge::default()
@@ -244,7 +245,7 @@ impl Drop for Tui {
             eprintln!("Error executing LeaveAlternateScreen: {e}");
         }
         if let Err(e) = disable_raw_mode() {
-            eprintln!("Error disabling raw mode: {e}")
+            eprintln!("Error disabling raw mode: {e}");
         }
     }
 }

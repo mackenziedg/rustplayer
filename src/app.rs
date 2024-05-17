@@ -13,17 +13,17 @@ pub struct SongInfo {
     title: Option<String>,
     album: Option<String>,
     artist: Option<String>,
-    _album_artist: Option<String>,
-    _year: Option<i32>,
-    _genre: Option<String>,
+    album_artist: Option<String>,
+    year: Option<i32>,
+    genre: Option<String>,
     track: (Option<u16>, Option<u16>),
-    _disc: (Option<u16>, Option<u16>),
+    disc: (Option<u16>, Option<u16>),
     duration: Duration,
     file_path: PathBuf,
 }
 
 impl SongInfo {
-    fn new(path: &Path, tag: Box<dyn AudioTag>) -> Self {
+    fn new(path: &Path, tag: &(dyn AudioTag + Send + Sync)) -> Self {
         // If the file has the duration in the tags, great!
         // If not, we call ffmpeg/ffprobe to get the info
         let duration = match tag.duration() {
@@ -32,14 +32,14 @@ impl SongInfo {
         };
 
         Self {
-            title: tag.title().map(|s| s.to_owned()),
-            album: tag.album_title().map(|s| s.to_owned()),
-            artist: tag.artist().map(|s| s.to_owned()),
-            _album_artist: tag.album_artist().map(|s| s.to_owned()),
-            _year: tag.year(),
-            _genre: tag.genre().map(|s| s.to_owned()),
+            title: tag.title().map(std::borrow::ToOwned::to_owned),
+            album: tag.album_title().map(std::borrow::ToOwned::to_owned),
+            artist: tag.artist().map(std::borrow::ToOwned::to_owned),
+            album_artist: tag.album_artist().map(std::borrow::ToOwned::to_owned),
+            year: tag.year(),
+            genre: tag.genre().map(std::borrow::ToOwned::to_owned),
             track: tag.track(),
-            _disc: tag.disc(),
+            disc: tag.disc(),
             duration,
             file_path: path.to_path_buf(),
         }
@@ -58,15 +58,15 @@ impl SongInfo {
     }
 
     pub fn _album_artist(&self) -> Option<&str> {
-        self._album_artist.as_deref()
+        self.album_artist.as_deref()
     }
 
     pub fn _year(&self) -> &Option<i32> {
-        &self._year
+        &self.year
     }
 
     pub fn _genre(&self) -> Option<&str> {
-        self._genre.as_deref()
+        self.genre.as_deref()
     }
 
     pub fn track(&self) -> &(Option<u16>, Option<u16>) {
@@ -74,7 +74,7 @@ impl SongInfo {
     }
 
     pub fn _disc(&self) -> &(Option<u16>, Option<u16>) {
-        &self._disc
+        &self.disc
     }
 
     pub fn duration(&self) -> &Duration {
@@ -182,7 +182,7 @@ impl PlayerApp {
                         } else if key.code == KeyCode::Right {
                             if self.app_state.active_song.is_some() {
                                 if key.modifiers == crossterm::event::KeyModifiers::SHIFT {
-                                    self.am.skip()
+                                    self.am.skip();
                                 } else {
                                     self.am.seek_forward();
                                 }
@@ -230,11 +230,11 @@ impl PlayerApp {
     }
 
     fn volume_up(&mut self) {
-        self.am.set_volume((self.am.get_volume() + 0.01).min(1.0))
+        self.am.set_volume((self.am.get_volume() + 0.01).min(1.0));
     }
 
     fn volume_down(&mut self) {
-        self.am.set_volume((self.am.get_volume() - 0.01).max(0.0))
+        self.am.set_volume((self.am.get_volume() - 0.01).max(0.0));
     }
 
     pub fn volume(&self) -> f32 {
@@ -386,7 +386,7 @@ impl Library {
     pub fn scan(&mut self) -> Result<usize> {
         self.files.clear();
         let mut total_files_seen = 0usize;
-        let mut to_scan = vec![self.root_dir.to_path_buf()];
+        let mut to_scan = vec![self.root_dir.clone()];
         while let Some(dir) = to_scan.pop() {
             for p in std::fs::read_dir(dir)?.flatten() {
                 let path = p.path();
@@ -398,11 +398,10 @@ impl Library {
                         .is_some_and(|e| ["mp3", "flac"].contains(&e.to_str().unwrap_or("")))
                 {
                     total_files_seen += 1;
-                    let tag = match Tag::new().read_from_path(&p.path()) {
-                        Ok(t) => t,
-                        Err(_) => continue,
+                    let Ok(tag) = Tag::new().read_from_path(&p.path()) else {
+                        continue;
                     };
-                    self.files.push(SongInfo::new(&p.path(), tag));
+                    self.files.push(SongInfo::new(&p.path(), &*tag));
                 }
             }
         }
