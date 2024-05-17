@@ -9,6 +9,7 @@ use ratatui::{
     backend::CrosstermBackend,
     layout::{Constraint, Layout, Rect},
     style::{Color, Modifier, Style, Stylize},
+    text::Line,
     widgets::{
         block::{Position, Title},
         Block, Borders, Gauge, Paragraph, Row, Table, TableState,
@@ -16,7 +17,7 @@ use ratatui::{
     Frame, Terminal,
 };
 
-use crate::app::PlayerApp;
+use crate::app::{AppUiMode, PlayerApp};
 
 pub struct Tui {
     terminal: Terminal<CrosstermBackend<Stdout>>,
@@ -44,7 +45,7 @@ impl Tui {
         Ok(())
     }
 
-    fn ui(frame: &mut Frame, app: &mut PlayerApp, ui_state: &mut UiState) {
+    fn draw_ui_file_list_mode(frame: &mut Frame, app: &mut PlayerApp, ui_state: &mut UiState) {
         let layout =
             Layout::vertical([Constraint::Fill(8), Constraint::Min(3)]).split(frame.size());
         let bottom_layout =
@@ -70,11 +71,62 @@ impl Tui {
         Self::draw_playback_bar(frame, app, ui_state, bottom_layout[0]);
     }
 
+    fn draw_ui_search_mode(frame: &mut Frame, app: &mut PlayerApp, ui_state: &mut UiState) {
+        let layout =
+            Layout::vertical([Constraint::Fill(1), Constraint::Fill(8), Constraint::Min(3)])
+                .split(frame.size());
+        let bottom_layout =
+            Layout::horizontal([Constraint::Fill(4), Constraint::Min(1)]).split(layout[2]);
+
+        let tags = match app.active_song() {
+            Some(t) => {
+                format!(
+                    "{}\n{}\n{}",
+                    t.title().unwrap_or("Unknown Title"),
+                    t.album().unwrap_or("Unknown Album"),
+                    t.artist().unwrap_or("Unknown Artist")
+                )
+            }
+            _ => String::from("Unknown Song"),
+        };
+
+        let search_text = app.search_query().unwrap_or("Search...");
+        frame.render_widget(Line::from(search_text), layout[0]);
+
+        let tag_info =
+            Paragraph::new(tags).block(Block::default().title("Now Playing").borders(Borders::ALL));
+        frame.render_widget(tag_info, bottom_layout[1]);
+
+        Self::draw_file_list(frame, app, ui_state, layout[1]);
+        Self::draw_playback_bar(frame, app, ui_state, bottom_layout[0]);
+    }
+
+    fn ui(frame: &mut Frame, app: &mut PlayerApp, ui_state: &mut UiState) {
+        match app.ui_mode() {
+            AppUiMode::FileList => Self::draw_ui_file_list_mode(frame, app, ui_state),
+            AppUiMode::SearchPopup => Self::draw_ui_search_mode(frame, app, ui_state),
+            _ => todo!(),
+        }
+    }
+
     fn draw_file_list(frame: &mut Frame, app: &mut PlayerApp, ui_state: &mut UiState, rect: Rect) {
         let table_rows = app
             .library()
             .files()
             .iter()
+            .filter(|s| {
+                // TODO: If the current selected row ix is > the length of the filtered search
+                // results, the selection disappears. It doesn't crash but is annoying.
+                if let Some(q) = app.search_query() {
+                    let query = q.to_lowercase();
+                    let title = s.title().unwrap_or("").to_lowercase();
+                    let artist = s.artist().unwrap_or("").to_lowercase();
+                    let album = s.album().unwrap_or("").to_lowercase();
+                    title.contains(&query) || artist.contains(&query) || album.contains(&query)
+                } else {
+                    true
+                }
+            })
             .map(|s| {
                 Row::new(vec![
                     format!("{:02}", s.track().0.unwrap_or(0)),     // Track ID
@@ -97,7 +149,7 @@ impl Tui {
             Constraint::Fill(5), // Song title
             Constraint::Fill(5), // Artist name
             Constraint::Fill(5), // Album name
-            Constraint::Fill(2), // Length
+            Constraint::Fill(2), // Duration
         ];
         let header =
             Row::new(["#", "Title", "Artist", "Album", "Length"]).style(Style::new().bold());

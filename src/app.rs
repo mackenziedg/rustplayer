@@ -86,13 +86,26 @@ impl SongInfo {
     }
 }
 
+#[derive(PartialEq)]
+pub enum AppUiMode {
+    FileList,
+    SearchPopup,
+    InfoPopup,
+}
+
+pub struct AppState {
+    active_song: Option<SongInfo>,
+    playing_file_ix: usize,
+    selected_file_ix: usize,
+    search_query: Option<String>,
+    ui_mode: AppUiMode,
+}
+
 pub struct PlayerApp {
     library: Library,
     am: AudioManager,
     alive: bool,
-    active_song: Option<SongInfo>,
-    playing_file_ix: usize,
-    selected_file_ix: usize,
+    app_state: AppState,
 }
 
 impl PlayerApp {
@@ -101,9 +114,13 @@ impl PlayerApp {
             library: Library::new(root_dir).with_scan()?,
             am: AudioManager::new()?,
             alive: true,
-            active_song: None,
-            playing_file_ix: 0,
-            selected_file_ix: 0,
+            app_state: AppState {
+                active_song: None,
+                playing_file_ix: 0,
+                selected_file_ix: 0,
+                search_query: None,
+                ui_mode: AppUiMode::FileList,
+            },
         })
     }
 
@@ -115,17 +132,25 @@ impl PlayerApp {
         &self.am
     }
 
+    pub fn ui_mode(&self) -> &AppUiMode {
+        &self.app_state.ui_mode
+    }
+
+    pub fn search_query(&self) -> Option<&str> {
+        self.app_state.search_query.as_deref()
+    }
+
     pub fn selected_file_ix(&self) -> usize {
-        self.selected_file_ix
+        self.app_state.selected_file_ix
     }
 
     pub fn update(&mut self, dt: f64) -> Result<()> {
         self.am.update(dt);
         self.handle_events()?;
-        if let Some(s) = &self.active_song {
+        if let Some(s) = &self.app_state.active_song {
             if self.am.playback_progress >= s.duration {
-                if self.playing_file_ix < self.library().files().len() - 1 {
-                    self.playing_file_ix += 1;
+                if self.app_state.playing_file_ix < self.library().files().len() - 1 {
+                    self.app_state.playing_file_ix += 1;
                     self.play_at_ix()?;
                 } else {
                     self.am.pause();
@@ -139,38 +164,64 @@ impl PlayerApp {
         if event::poll(Duration::from_millis(16))? {
             if let Event::Key(key) = event::read()? {
                 if key.kind == event::KeyEventKind::Press {
-                    if key.code == KeyCode::Char('q') {
-                        self.alive = false;
-                    } else if key.code == KeyCode::Char('p') {
-                        if self.active_song.is_some() {
-                            self.am.toggle_playback();
-                        }
-                    } else if key.code == KeyCode::Char('s') {
-                        self.library.scan()?;
-                    } else if key.code == KeyCode::Down {
-                        self.selected_file_ix =
-                            (self.selected_file_ix + 1).min(self.library().files().len() - 1);
-                    } else if key.code == KeyCode::Up {
-                        self.selected_file_ix = self.selected_file_ix.max(1) - 1;
-                    } else if key.code == KeyCode::Right {
-                        if self.active_song.is_some() {
-                            if key.modifiers == crossterm::event::KeyModifiers::SHIFT {
-                                self.am.skip()
-                            } else {
-                                self.am.seek_forward();
+                    if self.app_state.ui_mode == AppUiMode::FileList {
+                        if key.code == KeyCode::Char('q') {
+                            self.alive = false;
+                        } else if key.code == KeyCode::Char('p') {
+                            if self.app_state.active_song.is_some() {
+                                self.am.toggle_playback();
                             }
+                        } else if key.code == KeyCode::Char('s') {
+                            self.library.scan()?;
+                        } else if key.code == KeyCode::Down {
+                            self.app_state.selected_file_ix = (self.app_state.selected_file_ix + 1)
+                                .min(self.library().files().len() - 1);
+                        } else if key.code == KeyCode::Up {
+                            self.app_state.selected_file_ix =
+                                self.app_state.selected_file_ix.max(1) - 1;
+                        } else if key.code == KeyCode::Right {
+                            if self.app_state.active_song.is_some() {
+                                if key.modifiers == crossterm::event::KeyModifiers::SHIFT {
+                                    self.am.skip()
+                                } else {
+                                    self.am.seek_forward();
+                                }
+                            }
+                        } else if key.code == KeyCode::Left {
+                            if self.app_state.active_song.is_some() {
+                                self.am.seek_backward();
+                            }
+                        } else if key.code == KeyCode::Enter {
+                            self.app_state.playing_file_ix = self.app_state.selected_file_ix;
+                            self.play_at_ix()?;
+                        } else if key.code == KeyCode::Char('=') {
+                            self.volume_up();
+                        } else if key.code == KeyCode::Char('-') {
+                            self.volume_down();
+                        } else if key.code == KeyCode::Char('/') {
+                            self.app_state.ui_mode = AppUiMode::SearchPopup;
                         }
-                    } else if key.code == KeyCode::Left {
-                        if self.active_song.is_some() {
-                            self.am.seek_backward();
+                    } else if self.app_state.ui_mode == AppUiMode::SearchPopup {
+                        if key.code == KeyCode::Enter {
+                            self.app_state.ui_mode = AppUiMode::FileList;
+                        } else if key.code == KeyCode::Backspace {
+                            if let Some(q) = &self.app_state.search_query {
+                                if q.len() == 1 {
+                                    self.app_state.search_query = None;
+                                } else {
+                                    self.app_state.search_query =
+                                        Some(q[..q.len() - 1].to_string());
+                                }
+                            }
+                        } else if let KeyCode::Char(c) = key.code {
+                            let mut query = self.app_state.search_query.clone();
+                            if self.app_state.search_query.is_none() {
+                                query = Some(c.to_string());
+                            } else {
+                                query.as_mut().unwrap().push(c);
+                            }
+                            self.app_state.search_query = query;
                         }
-                    } else if key.code == KeyCode::Enter {
-                        self.playing_file_ix = self.selected_file_ix;
-                        self.play_at_ix()?;
-                    } else if key.code == KeyCode::Char('=') {
-                        self.volume_up();
-                    } else if key.code == KeyCode::Char('-') {
-                        self.volume_down();
                     }
                 }
             }
@@ -191,15 +242,16 @@ impl PlayerApp {
     }
 
     fn play_at_ix(&mut self) -> Result<()> {
-        let path = PathBuf::from(&self.library().files()[self.playing_file_ix].file_path);
+        let path = PathBuf::from(&self.library().files()[self.app_state.playing_file_ix].file_path);
         self.am.set_active_source(&path)?;
-        self.active_song = Some(self.library().files()[self.playing_file_ix].clone());
+        self.app_state.active_song =
+            Some(self.library().files()[self.app_state.playing_file_ix].clone());
         self.am.play();
         Ok(())
     }
 
     pub fn active_song(&self) -> Option<&SongInfo> {
-        self.active_song.as_ref()
+        self.app_state.active_song.as_ref()
     }
 
     pub fn is_alive(&self) -> bool {
