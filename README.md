@@ -23,6 +23,7 @@ rustplayer /path/to/music/files
 - 'Enter': Play selected song
 - 'p': Play/pause playing song
 - 's': Rescan folder
+- '/': Filter song list by title/artist/album. 'Enter' closes the search menu
 
 ## TODO
 
