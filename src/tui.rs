@@ -7,7 +7,7 @@ use crossterm::{
 use eyre::Result;
 use ratatui::{
     backend::CrosstermBackend,
-    layout::{Constraint, Layout, Rect},
+    layout::{Alignment, Constraint, Layout, Rect},
     style::{Color, Modifier, Style, Stylize},
     text::Line,
     widgets::{
@@ -17,7 +17,7 @@ use ratatui::{
     Frame, Terminal,
 };
 
-use crate::app::{AppUiMode, PlayerApp};
+use crate::app::{AppUiMode, PlaybackMode, PlayerApp};
 
 pub struct Tui {
     terminal: Terminal<CrosstermBackend<Stdout>>,
@@ -222,10 +222,27 @@ impl Tui {
             _ => String::new(),
         };
 
+        let shuffle_icon = match app.playback_mode() {
+            PlaybackMode::Normal => "",
+            PlaybackMode::Shuffle => "",
+        }
+        .to_string();
+
         let playback_bar = Gauge::default()
-            .block(Block::default().borders(Borders::ALL).title(tags).title(
-                Title::from(format!("Volume: {display_volume}%")).position(Position::Bottom),
-            ))
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(tags)
+                    .title(
+                        Title::from(format!("Volume: {display_volume}%"))
+                            .position(Position::Bottom),
+                    )
+                    .title(
+                        Title::from(shuffle_icon)
+                            .position(Position::Top)
+                            .alignment(Alignment::Right),
+                    ),
+            )
             .gauge_style(
                 Style::default()
                     .fg(active_color)

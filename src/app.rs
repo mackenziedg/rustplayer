@@ -4,6 +4,7 @@ use std::{fs::File, time::Duration};
 
 use audiotags::{AudioTag, Tag};
 use crossterm::event::{self, Event, KeyCode};
+use rand::{thread_rng, Rng};
 use rodio::{source::Source, Decoder, OutputStream, OutputStreamHandle, Sink};
 
 use eyre::Result;
@@ -93,12 +94,19 @@ pub enum AppUiMode {
     InfoPopup,
 }
 
+#[derive(PartialEq)]
+pub enum PlaybackMode {
+    Normal,
+    Shuffle,
+}
+
 pub struct AppState {
     active_song: Option<SongInfo>,
     playing_file_ix: usize,
     selected_file_ix: usize,
     search_query: Option<String>,
     ui_mode: AppUiMode,
+    playback_mode: PlaybackMode,
 }
 
 pub struct PlayerApp {
@@ -120,6 +128,7 @@ impl PlayerApp {
                 selected_file_ix: 0,
                 search_query: None,
                 ui_mode: AppUiMode::FileList,
+                playback_mode: PlaybackMode::Normal,
             },
         })
     }
@@ -136,6 +145,10 @@ impl PlayerApp {
         &self.app_state.ui_mode
     }
 
+    pub fn playback_mode(&self) -> &PlaybackMode {
+        &self.app_state.playback_mode
+    }
+
     pub fn search_query(&self) -> Option<&str> {
         self.app_state.search_query.as_deref()
     }
@@ -149,11 +162,21 @@ impl PlayerApp {
         self.handle_events()?;
         if let Some(s) = &self.app_state.active_song {
             if self.am.playback_progress >= s.duration {
-                if self.app_state.playing_file_ix < self.library().files().len() - 1 {
-                    self.app_state.playing_file_ix += 1;
+                if self.app_state.playback_mode == PlaybackMode::Normal {
+                    if self.app_state.playing_file_ix < self.library().files().len() - 1 {
+                        self.app_state.playing_file_ix += 1;
+                        self.play_at_ix()?;
+                    } else {
+                        self.am.pause();
+                    }
+                } else if self.app_state.playback_mode == PlaybackMode::Shuffle {
+                    let mut next_ix = thread_rng().gen_range(0..self.library().files().len() - 1);
+                    let cur_ix = self.app_state.playing_file_ix;
+                    if next_ix >= cur_ix {
+                        next_ix += 1;
+                    }
+                    self.app_state.playing_file_ix = next_ix;
                     self.play_at_ix()?;
-                } else {
-                    self.am.pause();
                 }
             }
         }
@@ -173,6 +196,11 @@ impl PlayerApp {
                             }
                         } else if key.code == KeyCode::Char('s') {
                             self.library.scan()?;
+                        } else if key.code == KeyCode::Char('f') {
+                            self.app_state.playback_mode = match self.app_state.playback_mode {
+                                PlaybackMode::Normal => PlaybackMode::Shuffle,
+                                PlaybackMode::Shuffle => PlaybackMode::Normal,
+                            };
                         } else if key.code == KeyCode::Down {
                             self.app_state.selected_file_ix = (self.app_state.selected_file_ix + 1)
                                 .min(self.library().files().len() - 1);
